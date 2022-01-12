@@ -3,7 +3,11 @@ const REJECTED = 'rejected';
 const FULFILLED = 'fulfilled';
 class MyPromise {
     constructor(execute) {
-        execute(this.resolve, this.reject);
+        try {
+            execute(this.resolve, this.reject);
+        } catch (e) {
+            this.reject(e);
+        }
     }
     status = PENDING;
     value = null;
@@ -17,7 +21,7 @@ class MyPromise {
         this.status = FULFILLED;
         this.value = value;
         while(this.successCallback.length > 0) {
-            this.successCallback.shift()(this.value);
+            this.successCallback.shift()();
         }
     }
     reject = reason => {
@@ -27,42 +31,104 @@ class MyPromise {
         this.status = REJECTED;
         this.reason = reason;
         while(this.failCallback.length > 0) {
-            this.failCallback.shift()(this.reason);
+            this.failCallback.shift()();
         }
     }
     then(successCallback, failCallback) {
-        return new MyPromise((resolve, reject) => {
-            if (this.status === FULFILLED) {
-                const x = successCallback(this.value);
-                resolvePromise(x, resolve);
-            } else if (this.status === REJECTED) {
-                failCallback(this.reason)
-            } else {
-                this.successCallback.push(successCallback);
-                this.failCallback.push(failCallback);
-            }
+        successCallback ? successCallback : value => value;
+        failCallback ? failCallback : err => {throw new Error(err)};
+        const promise2 = new MyPromise((resolve, reject) => {
+            setTimeout(() => {
+                if (this.status === FULFILLED) {
+                    try {
+                        const x = successCallback(this.value);
+                        resolvePromise(promise2, x, resolve, reject);
+                    } catch (e) {
+                        reject(e);
+                    }
+                } else if (this.status === REJECTED) {
+                    try {
+                        const x = failCallback(this.reason);
+                        resolvePromise(promise2, x, resolve, reject);
+                    } catch (e) {
+                        reject(e);
+                    }
+                } else {
+                    this.successCallback.push(() => {
+                        try {
+                            const x = successCallback(this.value);
+                            resolvePromise(promise2, x, resolve, reject);
+                        } catch (e) {
+                            reject(e);
+                        }
+                    });
+                    this.failCallback.push(() => {
+                        try {
+                            const x = failCallback(this.reason);
+                            resolvePromise(promise2, x, resolve, reject);
+                        } catch (e) {
+                            reject(e);
+                        }
+                    });
+                }
+            }, 0);
         });
+        return promise2;
+    }
+    // TODO
+    finally() {}
+    catch(failCallback) {
+        return this.then(undefined, failCallback);
+    }
+    static all(arr) {
+        const resolveArr = [];
+        let index = 0;
+        return new MyPromise((resolve) => {
+            function addData(key, value) {
+                index++;
+                resolveArr[key] = value;
+                if (index === arr.length) {
+                    resolve(resolveArr);
+                }
+            }
+            arr.forEach((item, i) => {
+                if (item instanceof MyPromise) {
+                    item.then((value) => {
+                        addData(i, value);
+                    });
+                } else {
+                    addData(i, item);
+                }
+            })
+        })
+    }
+    static resolve(value) {
+        if (value instanceof MyPromise) {
+            return value;
+        }
+        return new MyPromise((resolve) => resolve(value));
     }
 }
 
-function resolvePromise (x, resolve) {
+function resolvePromise (promise2, x, resolve, reject) {
+    if (x === promise2) {
+        return reject(new TypeError('then方法不能返回自身的promise'));
+    }
     if (x instanceof MyPromise) {
-        x.then((v) => {
-            resolve(v);
-        });
+        x.then(resolve, reject);
     } else {
         resolve(x);
     }
 }
 
-const promise = new MyPromise((resolve, reject) => {
-    resolve('成功');
-}).then((value) => {
-    return new MyPromise((resolve, reject) => {
-        setTimeout(() => {
-            resolve(value);
-        }, 1000);
+function p1() {
+    return new MyPromise((resolve) => {
+        resolve(1);
     });
+}
+p1().finally(() => {
+    console.log('finally');
 }).then((value) => {
-    console.log(value);
-});
+    console.log('value====-132', value);
+})
+    
