@@ -1,0 +1,5 @@
+function resolvePromise () {
+    
+}
+
+export { resolvePromise };
